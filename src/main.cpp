@@ -58,21 +58,23 @@ float readPot(int pin, float minVal, float maxVal) {
   return minVal + analogRead(pin)*(maxVal-minVal)/ADC_resolution_float;
 }
 
-void send(char )
-Serial.print()
+void send(String state, float T_start, float P_start, float V_start, float m_start, float p_0, float t_2, float p_2, float t_3, float p_3, float t_4, float p_4, float t_5, float p_5, float T_final, float P_final, float V_final, float F_final)
+{
+  Serial.print()
+}
+
 void setup() {
   Serial.begin(Baudreate);
   pinMode(ON_OF_SWITCH, INPUT_PULLDOWN);
   esc.setPeriodHertz(ESC_Hertz);
   esc.attach(ESC_PIN, ESC_stop, ESC_max);
   esc.writeMicroseconds(ESC_stop);
-  Serial.print("Initiliazing...")
-  delay(Initial_wait);
+  
 }
 
 void loop() {
 
-  int run = digitalRead(ON_OF_SWITCH);
+  bool run = digitalRead(ON_OF_SWITCH);
   switch(run)
   {
     case false:
@@ -119,7 +121,6 @@ void loop() {
   float V9 = sqrt(max(0.0f, 2000.0f*(h5-h9)));
   float F = m*(V9-V0);
 
-  bool run = digitalRead(SWITCH);
   esc.writeMicroseconds(run ? map((int)(m*10),10,800,1150,1800) : 1000);
 
 
