@@ -82,7 +82,7 @@ String states_names (Motor_states state)
 struct Display
 {
   float T0;
-  float P0;
+  float P0; //vel de giro N1
   float V0;
   float m;
   float T2;
@@ -97,6 +97,7 @@ struct Display
   float P9;  
   float V9;
   float F;
+  float V_N1;
 }; 
 
 void send_telemetry(Motor_states state, Display output)
@@ -126,9 +127,10 @@ void send_telemetry(Motor_states state, Display output)
   Serial.print(','); Serial.print(output.P9, 2);
   Serial.print(','); Serial.print(output.V9, 2);
   Serial.print(','); Serial.println(output.F, 2);
+  Serial.print(','); Serial.println(output.V_N1, 2);
 }
 
-void send_state(Motor_states state, float number)
+void send_state(Motor_states state, float number, Display output)
 {
   String name = states_names(state);
 
@@ -155,6 +157,7 @@ void send_state(Motor_states state, float number)
   Serial.print(','); Serial.print(number, 2);
   Serial.print(','); Serial.print(number, 2);
   Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(output.V_N1, 2);
 }
 
 void calculations(Display &output)
@@ -194,27 +197,29 @@ void calculations(Display &output)
   output.F = output.m*(output.V9-output.V0);
 }
 
-Servo esc;
-Motor_states state = Apagado;
-Display output;
-unsigned long last_time = 0;
-
-Motor_states speed_up_motor ()
+Motor_states speed_up_motor (Servo &esc, unsigned long &lasttime, Display &output)
 {
   static int i = First_speed_up_level;
 
   for (i; i <= Speed_up_levels; i++)
   {
     esc.write(map(i, First_speed_up_level, Speed_up_levels, ESC_stop, ESC_max));
+    output.V_N1 = i*10;
+    
     if(i == Speed_up_levels)
     {
       i = First_speed_up_level;
       return Encendido;
     }
-    last_time = millis();
+    lasttime = millis();
     return Arrancando;
   }
 }
+
+Servo esc;
+Motor_states state = Apagado;
+Display output;
+unsigned long last_time = 0;
 
 
 void setup() {
@@ -224,7 +229,7 @@ void setup() {
   esc.setPeriodHertz(ESC_Hertz);
   esc.attach(ESC_PIN, ESC_stop, ESC_max);
   esc.writeMicroseconds(ESC_stop);
-  send_state(state, All_zeros);
+  send_state(state, All_zeros, output);
 }
 
 void loop() {
@@ -233,6 +238,7 @@ void loop() {
   if (!run)
   {
     state = Apagado;
+    output.V_N1 = 0;
   }
   switch(state)
   {
@@ -240,22 +246,22 @@ void loop() {
       if(run)
       {
         state = Arrancando;
-        send_state(state, All_zeros);
+        send_state(state, All_zeros, output);
         last_time = millis();
       }
       else
       {
-        send_state(state, All_zeros);
+        send_state(state, All_zeros, output);
       }
     break;
 
     case Arrancando:
       if(millis() - last_time >= Speed_up_time/Speed_up_levels)
       {
-        state = speed_up_motor();
+        state = speed_up_motor(esc, last_time, output);
         break;
       }
-      send_state(state, All_zeros);
+      send_state(state, All_zeros, output);
     break;
 
     case Encendido:
