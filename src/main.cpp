@@ -20,16 +20,17 @@
 #define ESC_max 2000
 #define Baudreate 115200
 #define Ratio_Pressure 13.5
-#define T4 1265.0
+#define Temperature_4 1265.0
 #define Number_of_values 122
 #define Initial_wait 1000
 #define ADC_resolution_float 4095.0
 #define UNIT_compensation 2000.0
 #define ON ON
 #define OFF OFF
-
-
-Servo esc;
+#define All_zeros 0
+#define Speed_up_time 4000
+#define Speed_up_levels 10
+#define First_speed_up_level 1
 
 const float Temperature[Number_of_values] = {
 200,210,220,230,240,250,260,270,280,285,290,295,300,305,310,315,320,325,330,340,350,360,370,380,390,400,410,420,430,440,450,460,470,480,490,500,510,520,530,540,550,560,570,580,590,600,610,620,630,640,650,660,670,680,690,700,710,720,730,740,750,760,770,780,790,800,820,840,860,880,900,920,940,960,980,1000,1020,1040,1060,1080,1100,1120,1140,1160,1180,1200,1220,1240,1260,1280,1300,1320,1340,1360,1380,1400,1420,1440,1460,1480,1500,1520,1540,1560,1580,1600,1620,1640,1660,1680,1700,1750,1800,1850,1900,1950,2000,2050,2100,2150,2200,2250};
@@ -58,71 +59,211 @@ float readPot(int pin, float minVal, float maxVal) {
   return minVal + analogRead(pin)*(maxVal-minVal)/ADC_resolution_float;
 }
 
-void send(String state, float T_start, float P_start, float V_start, float m_start, float p_0, float t_2, float p_2, float t_3, float p_3, float t_4, float p_4, float t_5, float p_5, float T_final, float P_final, float V_final, float F_final)
+typedef enum Motor_states
 {
-  Serial.print()
+  Apagado = 0, Arrancando, Encendido
+}Motor_states;
+
+String states_names (Motor_states state)
+{
+  switch(state)
+  {
+    case Apagado:
+      return "Apagado";
+
+    case Arrancando:
+      return "Arrancando";
+
+    case Encendido:
+      return "Encendido";
+  }
 }
+
+struct Display
+{
+  float T0;
+  float P0;
+  float V0;
+  float m;
+  float T2;
+  float P2;
+  float T3;
+  float P3;
+  float T4;
+  float P4;
+  float T5;
+  float P5;
+  float T9;
+  float P9;  
+  float V9;
+  float F;
+}; 
+
+void send_telemetry(Motor_states state, Display output)
+{
+  String name = states_names(state);
+
+  Serial.print(name);
+  
+  Serial.print(','); Serial.print(output.T0, 2);
+  Serial.print(','); Serial.print(output.P0, 2);
+  Serial.print(','); Serial.print(output.V0, 2);
+  Serial.print(','); Serial.print(output.m, 2);
+
+  Serial.print(','); Serial.print(output.T2, 2);
+  Serial.print(','); Serial.print(output.P2, 2);
+
+  Serial.print(','); Serial.print(output.T3, 2);
+  Serial.print(','); Serial.print(output.P3, 2);
+
+  Serial.print(','); Serial.print(output.T4, 2);
+  Serial.print(','); Serial.print(output.P4, 2);
+
+  Serial.print(','); Serial.print(output.T5, 2);
+  Serial.print(','); Serial.print(output.P5, 2);
+
+  Serial.print(','); Serial.print(output.T9, 2);
+  Serial.print(','); Serial.print(output.P9, 2);
+  Serial.print(','); Serial.print(output.V9, 2);
+  Serial.print(','); Serial.println(output.F, 2);
+}
+
+void send_state(Motor_states state, float number)
+{
+  String name = states_names(state);
+
+  Serial.print(name);
+
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+  Serial.print(','); Serial.print(number, 2);
+}
+
+void calculations(Display &output)
+{
+  output.T0 = readPot(POT_T0, T0_min, T0_max);
+  output.P0 = readPot(POT_P0, P0_min, P0_max);
+  output.V0 = readPot(POT_V0, V0_min, V0_max);
+  output.m  = readPot(POT_M, M_min, M_max);
+
+  float h0 = interp((float)output.T0, Temperature, Enthalpy);
+  float pr0 = interp((float)output.T0, Temperature, Pressure);
+
+  float h2 = h0 + output.V0*output.V0/UNIT_compensation;
+  output.T2 = inv(h2, Enthalpy, Temperature);
+  float pr2 = interp(T2, Temperature, Pressure);
+  output.P2 = output.P0*pr2/pr0;
+
+  output.P3 = Ratio_Pressure* output.P2;
+  float pr3 = Ratio_Pressure*pr2;
+  output.T3 = inv(pr3, Pressure, Temperature);
+  float h3 = interp((float)output.T3, Temperature, Enthalpy);
+
+  output.P4 = output.P3;
+  float h4 = interp(Temperature_4, Temperature, Enthalpy);
+  float pr4 = interp(Temperature_4, Temperature, Pressure);
+
+  float h5 = h4-(h3-h2);
+  output.T5 = inv(h5, Enthalpy, Temperature);
+  float pr5 = interp((float)output.T5, Temperature, Pressure);
+  output.P5 = output.P4*pr5/pr4;
+
+  output.P9 = output.P0;
+  float pr9 = pr5*output.P9/output.P5;
+  output.T9 = inv(pr9, Pressure, Temperature);
+  float h9 = interp((float)output.T9, Temperature, Enthalpy);
+  output.V9 = sqrt(max(0.0f, 2000.0f*(h5-h9)));
+  output.F = output.m*(output.V9-output.V0);
+}
+
+Servo esc;
+Motor_states state = Apagado;
+Display output;
+unsigned long last_time = 0;
+
+Motor_states speed_up_motor ()
+{
+  static int i = First_speed_up_level;
+
+  for (i; i <= Speed_up_levels; i++)
+  {
+    esc.write(map(i, First_speed_up_level, Speed_up_levels, ESC_stop, ESC_max));
+    if(i == Speed_up_levels)
+    {
+      i = First_speed_up_level;
+      return Encendido;
+    }
+    last_time = millis();
+    return Arrancando;
+  }
+}
+
 
 void setup() {
   Serial.begin(Baudreate);
+
   pinMode(ON_OF_SWITCH, INPUT_PULLDOWN);
   esc.setPeriodHertz(ESC_Hertz);
   esc.attach(ESC_PIN, ESC_stop, ESC_max);
   esc.writeMicroseconds(ESC_stop);
-  
+  send_state(state, All_zeros);
 }
 
 void loop() {
 
   bool run = digitalRead(ON_OF_SWITCH);
-  switch(run)
+  if (!run)
   {
-    case false:
-
-    break;
-    case true:
-
-    break;
-
+    state = Apagado;
   }
-  
-  float T0 = readPot(POT_T0, T0_min, T0_max);
-  float P0 = readPot(POT_P0, P0_min, P0_max);
-  float V0 = readPot(POT_V0, V0_min, V0_max);
-  float m  = readPot(POT_M, M_min, M_max);
+  switch(state)
+  {
+    case Apagado:
+      if(run)
+      {
+        state = Arrancando;
+        send_state(state, All_zeros);
+        last_time = millis();
+      }
+      else
+      {
+        send_state(state, All_zeros);
+      }
+    break;
 
-  float h0 = interp(T0, Temperature, Enthalpy);
-  float pr0 = interp(T0, Temperature, Pressure);
+    case Arrancando:
+      if(millis() - last_time >= Speed_up_time/Speed_up_levels)
+      {
+        state = speed_up_motor();
+        break;
+      }
+      send_state(state, All_zeros);
+    break;
 
-  float h2 = h0 + V0*V0/UNIT_compensation;
-  float T2 = inv(h2, Enthalpy, Temperature);
-  float pr2 = interp(T2, Temperature, Pressure);
-  float P2 = P0*pr2/pr0;
-
-  float P3 = Ratio_Pressure*P2;
-  float pr3 = Ratio_Pressure*pr2;
-  float T3 = inv(pr3, Pressure, Temperature);
-  float h3 = interp(T3, Temperature, Enthalpy);
-
-  float P4 = P3;
-  float h4 = interp(T4, Temperature, Enthalpy);
-  float pr4 = interp(T4, Temperature, Pressure);
-
-  float h5 = h4-(h3-h2);
-  float T5 = inv(h5, Enthalpy, Temperature);
-  float pr5 = interp(T5, Temperature, Pressure);
-  float P5 = P4*pr5/pr4;
-
-
-  float P9 = P0;
-  float pr9 = pr5*P9/P5;
-  float T9 = inv(pr9, Pressure, Temperature);
-  float h9 = interp(T9, Temperature, Enthalpy);
-  float V9 = sqrt(max(0.0f, 2000.0f*(h5-h9)));
-  float F = m*(V9-V0);
-
-  esc.writeMicroseconds(run ? map((int)(m*10),10,800,1150,1800) : 1000);
-
+    case Encendido:
+      calculations(output);
+      send_telemetry(state, output);
+    break;
+  }
 
   delay(250);
+
 }
