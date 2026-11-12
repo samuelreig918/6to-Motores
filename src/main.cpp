@@ -31,6 +31,10 @@
 #define Speed_up_time 4000
 #define Speed_up_levels 10
 #define First_speed_up_level 1
+#define FIRST_LED_CC 20
+#define SECOND_LED_CC 21
+#define LED_LUB 22
+#define LED_AIR 23
 
 const float Temperature[Number_of_values] = {
 200,210,220,230,240,250,260,270,280,285,290,295,300,305,310,315,320,325,330,340,350,360,370,380,390,400,410,420,430,440,450,460,470,480,490,500,510,520,530,540,550,560,570,580,590,600,610,620,630,640,650,660,670,680,690,700,710,720,730,740,750,760,770,780,790,800,820,840,860,880,900,920,940,960,980,1000,1020,1040,1060,1080,1100,1120,1140,1160,1180,1200,1220,1240,1260,1280,1300,1320,1340,1360,1380,1400,1420,1440,1460,1480,1500,1520,1540,1560,1580,1600,1620,1640,1660,1680,1700,1750,1800,1850,1900,1950,2000,2050,2100,2150,2200,2250};
@@ -79,6 +83,20 @@ String states_names (Motor_states state)
   }
 }
 
+struct LED_CC
+{
+  bool First_CC = 0;
+  bool Second_CC = 0;
+  bool CC = 0;
+};
+
+struct LED_CC
+{
+  bool First_CC = 0;
+  bool Second_CC = 0;
+  bool CC = 0;
+};
+
 struct Display
 {
   float T0;
@@ -98,13 +116,16 @@ struct Display
   float V9;
   float F;
   float V_N1 = 0;
+  LED_CC ledCC;
+  bool ledLub = 0;
+  bool ledAir = 0;
 }; 
 
 void send_telemetry(Motor_states state, Display output)
 {
-  String name = states_names(state);
+  String state_name = states_names(state);
 
-  Serial.print(name);
+  Serial.print(state_name);
   
   Serial.print(','); Serial.print(output.T0, 2);
   Serial.print(','); Serial.print(output.P0, 2);
@@ -128,13 +149,17 @@ void send_telemetry(Motor_states state, Display output)
   Serial.print(','); Serial.print(output.V9, 2);
   Serial.print(','); Serial.println(output.F, 2);
   Serial.print(','); Serial.println(output.V_N1, 2);
+
+  Serial.print(','); Serial.print(output.ledCC.CC);
+  Serial.print(','); Serial.print(output.ledLub);
+  Serial.print(','); Serial.print(output.ledAir);
 }
 
 void send_state(Motor_states state, float number, Display output)
 {
-  String name = states_names(state);
+  String state_name = states_names(state);
 
-  Serial.print(name);
+  Serial.print(state_name);
 
   Serial.print(','); Serial.print(number, 2);
   Serial.print(','); Serial.print(number, 2);
@@ -226,13 +251,25 @@ String receive()
   return command
 }
 
-void commands(String command, bool )
+void commands(String command, Display &output)
 {
   switch(command)
   {
-    case CC:
+    case "CC":
+      output.ledCC.CC = !output.ledCC.CC;
+      digitalWrite(FIRST_LED_CC, output.ledCC.CC);
+      digitalWrite(SECOND_LED_CC, output.ledCC.CC);
+    break;
 
-    
+    case "LUB":
+      output.ledLub = !output.ledLub;
+      digitalWrite(LED_LUB, output.ledLub);
+    break;
+
+    case "AIR":
+      output.ledAir = !output.ledAir;
+      digitalWrite(LED_AIR, output.ledAir);
+    break;
   }
 }
 
@@ -248,6 +285,8 @@ void setup() {
   Serial.begin(Baudreate);
 
   pinMode(ON_OF_SWITCH, INPUT_PULLDOWN);
+  pinMode(FIRST_LED_CC, OUTPUT);
+  pinMode(SECOND_LED_CC, OUTPUT);
   esc.setPeriodHertz(ESC_Hertz);
   esc.attach(ESC_PIN, ESC_stop, ESC_max);
   esc.writeMicroseconds(ESC_stop);
