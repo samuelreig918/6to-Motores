@@ -97,7 +97,7 @@ struct Display
   float P9;  
   float V9;
   float F;
-  float V_N1;
+  float V_N1 = 0;
 }; 
 
 void send_telemetry(Motor_states state, Display output)
@@ -215,6 +215,28 @@ Motor_states speed_up_motor (Servo &esc, unsigned long &lasttime, Display &outpu
     return Arrancando;
   }
 }
+
+String receive()
+{
+  String command;
+  while(Serial.available())
+  {
+    command = Serial.read();
+  }
+  return command
+}
+
+void commands(String command, bool )
+{
+  switch(command)
+  {
+    case CC:
+
+    
+  }
+}
+
+
 
 Servo esc;
 Motor_states state = Apagado;
