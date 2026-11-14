@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
 
-#define POT_T0 34
+#define POT_T0 35
 #define T0_min 216.65
 #define T0_max 320.0
 #define POT_P0 35
@@ -11,9 +11,9 @@
 #define V0_min 0.0
 #define V0_max 700.0
 #define POT_M  33
-#define M_min 1.0
+#define M_min 1.0 //Ajustar flujo masico, buscar en linea 
 #define M_max 80.0
-#define ON_OF_SWITCH 4
+#define ON_OF_SWITCH 34
 #define ESC_PIN 27
 #define ESC_Hertz 50
 #define ESC_stop 1000
@@ -25,16 +25,16 @@
 #define Initial_wait 1000
 #define ADC_resolution_float 4095.0
 #define UNIT_compensation 2000.0
-#define ON ON
-#define OFF OFF
+#define ON "ON"
+#define OFF "OFF"
 #define All_zeros 0
 #define Speed_up_time 4000
 #define Speed_up_levels 10
-#define First_speed_up_level 1
-#define FIRST_LED_CC 20
-#define SECOND_LED_CC 21
-#define LED_LUB 22
-#define LED_AIR 23
+#define First_speed_up_level 0
+#define FIRST_LED_CC_PIN 32
+#define SECOND_LED_CC_PIN 33
+#define LED_LUB_PIN 26
+#define LED_AIR_PIN 23
 
 const float Temperature[Number_of_values] = {
 200,210,220,230,240,250,260,270,280,285,290,295,300,305,310,315,320,325,330,340,350,360,370,380,390,400,410,420,430,440,450,460,470,480,490,500,510,520,530,540,550,560,570,580,590,600,610,620,630,640,650,660,670,680,690,700,710,720,730,740,750,760,770,780,790,800,820,840,860,880,900,920,940,960,980,1000,1020,1040,1060,1080,1100,1120,1140,1160,1180,1200,1220,1240,1260,1280,1300,1320,1340,1360,1380,1400,1420,1440,1460,1480,1500,1520,1540,1560,1580,1600,1620,1640,1660,1680,1700,1750,1800,1850,1900,1950,2000,2050,2100,2150,2200,2250};
@@ -83,31 +83,36 @@ String states_names (Motor_states state)
   }
 }
 
-struct LED_CC
+struct CC
 {
-  bool First_CC = 0;
-  bool Second_CC = 0;
-  bool CC = 0;
+  String CC_State;
+  bool CC_LED;
 };
 
-struct LED_CC
+struct LUB
 {
-  bool First_CC = 0;
-  bool Second_CC = 0;
-  bool CC = 0;
+  String LUB_State = OFF;
+  bool LUB_LED = LOW;
 };
+
+struct AIR
+{
+  String AIR_State = OFF;
+  bool AIR_LED = LOW;
+};
+
 
 struct Display
 {
   float T0;
-  float P0; //vel de giro N1
+  float P0; 
   float V0;
   float m;
   float T2;
   float P2;
   float T3;
   float P3;
-  float T4;
+  float T4 = 1265.0;
   float P4;
   float T5;
   float P5;
@@ -116,9 +121,9 @@ struct Display
   float V9;
   float F;
   float V_N1 = 0;
-  LED_CC ledCC;
-  bool ledLub = 0;
-  bool ledAir = 0;
+  CC ledCC;
+  LUB ledLub;
+  AIR ledAir;
 }; 
 
 void send_telemetry(Motor_states state, Display output)
@@ -147,12 +152,12 @@ void send_telemetry(Motor_states state, Display output)
   Serial.print(','); Serial.print(output.T9, 2);
   Serial.print(','); Serial.print(output.P9, 2);
   Serial.print(','); Serial.print(output.V9, 2);
-  Serial.print(','); Serial.println(output.F, 2);
-  Serial.print(','); Serial.println(output.V_N1, 2);
+  Serial.print(','); Serial.print(output.F, 2);
+  Serial.print(','); Serial.print(output.V_N1, 2);
 
-  Serial.print(','); Serial.print(output.ledCC.CC);
-  Serial.print(','); Serial.print(output.ledLub);
-  Serial.print(','); Serial.print(output.ledAir);
+  Serial.print(','); Serial.print(output.ledCC.CC_State);
+  Serial.print(','); Serial.print(output.ledLub.LUB_State);
+  Serial.print(','); Serial.println(output.ledAir.AIR_State);
 }
 
 void send_state(Motor_states state, float number, Display output)
@@ -183,6 +188,10 @@ void send_state(Motor_states state, float number, Display output)
   Serial.print(','); Serial.print(number, 2);
   Serial.print(','); Serial.print(number, 2);
   Serial.print(','); Serial.print(output.V_N1, 2);
+
+  Serial.print(','); Serial.print(output.ledCC.CC_State);
+  Serial.print(','); Serial.print(output.ledLub.LUB_State);
+  Serial.print(','); Serial.println(output.ledAir.AIR_State);
 }
 
 void calculations(Display &output)
@@ -200,7 +209,7 @@ void calculations(Display &output)
   float pr2 = interp(T2, Temperature, Pressure);
   output.P2 = output.P0*pr2/pr0;
 
-  output.P3 = Ratio_Pressure* output.P2;
+  output.P3 = Ratio_Pressure*output.P2;
   float pr3 = Ratio_Pressure*pr2;
   output.T3 = inv(pr3, Pressure, Temperature);
   float h3 = interp((float)output.T3, Temperature, Enthalpy);
@@ -222,112 +231,171 @@ void calculations(Display &output)
   output.F = output.m*(output.V9-output.V0);
 }
 
-Motor_states speed_up_motor (Servo &esc, unsigned long &lasttime, Display &output)
+bool speed_up_motor (Motor_states state, Servo &esc, unsigned long &lasttime, Display &output)
 {
+
   static int i = First_speed_up_level;
 
-  for (i; i <= Speed_up_levels; i++)
+  if (state == Apagado)
   {
-    esc.write(map(i, First_speed_up_level, Speed_up_levels, ESC_stop, ESC_max));
-    output.V_N1 = i*10;
+    i = First_speed_up_level;
+  }
+
+  esc.writeMicroseconds(map(i, First_speed_up_level, Speed_up_levels, ESC_stop, ESC_max));
+  output.V_N1 = i*10;
     
-    if(i == Speed_up_levels)
-    {
-      i = First_speed_up_level;
-      return Encendido;
-    }
+  if(i == Speed_up_levels)
+  {
+    i = First_speed_up_level;
+    return true;
+  }
+  else
+  {
+    i++;
     lasttime = millis();
-    return Arrancando;
+    return false;
   }
 }
+
+
 
 String receive()
 {
   String command;
-  while(Serial.available())
+  if(Serial.available())
   {
-    command = Serial.read();
+    while(Serial.available())
+    {
+      command = Serial.read();
+    }
   }
-  return command
+  else
+  {
+    command = "NULL";
+  }
+  return command;
 }
+
 
 void commands(String command, Display &output)
 {
-  switch(command)
+ if (command == "LUB")
   {
-    case "CC":
-      output.ledCC.CC = !output.ledCC.CC;
-      digitalWrite(FIRST_LED_CC, output.ledCC.CC);
-      digitalWrite(SECOND_LED_CC, output.ledCC.CC);
-    break;
-
-    case "LUB":
-      output.ledLub = !output.ledLub;
-      digitalWrite(LED_LUB, output.ledLub);
-    break;
-
-    case "AIR":
-      output.ledAir = !output.ledAir;
-      digitalWrite(LED_AIR, output.ledAir);
-    break;
+    output.ledLub.LUB_State = !output.ledLub.LUB_State;
+    output.ledLub.LUB_LED = !output.ledLub.LUB_LED;
+    digitalWrite(LED_LUB_PIN, output.ledLub.LUB_LED);
+    return;
+  }
+  else if (command == "AIR")
+  {
+    output.ledAir.AIR_State = !output.ledAir.AIR_State;
+    output.ledAir.AIR_LED = !output.ledAir.AIR_LED;
+    digitalWrite(LED_AIR_PIN, output.ledAir.AIR_LED);
+    return;
+  }
+  else
+  {
+    return;
   }
 }
-
-
 
 Servo esc;
 Motor_states state = Apagado;
 Display output;
 unsigned long last_time = 0;
-
+bool motor_fully_on = false;
 
 void setup() {
   Serial.begin(Baudreate);
 
   pinMode(ON_OF_SWITCH, INPUT_PULLDOWN);
-  pinMode(FIRST_LED_CC, OUTPUT);
-  pinMode(SECOND_LED_CC, OUTPUT);
+  pinMode(FIRST_LED_CC_PIN, OUTPUT);
+  pinMode(SECOND_LED_CC_PIN, OUTPUT);
   esc.setPeriodHertz(ESC_Hertz);
   esc.attach(ESC_PIN, ESC_stop, ESC_max);
   esc.writeMicroseconds(ESC_stop);
   send_state(state, All_zeros, output);
+  state = Apagado;
+  output.V_N1 = 0;
+  esc.writeMicroseconds(ESC_stop);
+  output.ledCC.CC_State = OFF;
+  output.ledCC.CC_LED = LOW;
+  digitalWrite(FIRST_LED_CC_PIN, output.ledCC.CC_LED);
+  digitalWrite(SECOND_LED_CC_PIN, output.ledCC.CC_LED);
 }
 
 void loop() {
 
   bool run = digitalRead(ON_OF_SWITCH);
-  if (!run)
-  {
-    state = Apagado;
-    output.V_N1 = 0;
-  }
+  
+
   switch(state)
   {
     case Apagado:
-      if(run)
+      if(!run)
       {
-        state = Arrancando;
         send_state(state, All_zeros, output);
-        last_time = millis();
+        motor_fully_on = false;
       }
       else
       {
-        send_state(state, All_zeros, output);
+        motor_fully_on = speed_up_motor(state, esc, last_time, output);
+        state = Arrancando;
+        last_time = millis(); //CHECAR
       }
     break;
 
     case Arrancando:
-      if(millis() - last_time >= Speed_up_time/Speed_up_levels)
+
+      if(run)
       {
-        state = speed_up_motor(esc, last_time, output);
-        break;
+        if(!motor_fully_on)
+        {
+          if(millis() - last_time >= Speed_up_time/Speed_up_levels)
+          {
+            motor_fully_on = speed_up_motor(state, esc, last_time, output);
+            send_state(state, All_zeros, output);
+          }
+
+          return;
+        }
+        else
+        {
+          state = Encendido;
+          output.ledCC.CC_State = ON;
+          output.ledCC.CC_LED = HIGH;
+          digitalWrite(FIRST_LED_CC_PIN, output.ledCC.CC_LED);
+          digitalWrite(SECOND_LED_CC_PIN, output.ledCC.CC_LED);
+        }
       }
-      send_state(state, All_zeros, output);
+      else
+      {
+        state = Apagado;
+        output.V_N1 = 0;
+        esc.writeMicroseconds(ESC_stop);
+        output.ledCC.CC_State = OFF;
+        output.ledCC.CC_LED = LOW;
+        digitalWrite(FIRST_LED_CC_PIN, output.ledCC.CC_LED);
+        digitalWrite(SECOND_LED_CC_PIN, output.ledCC.CC_LED);
+      }
     break;
 
     case Encendido:
+    if(run)
+    {
       calculations(output);
       send_telemetry(state, output);
+    }
+    else
+    {
+        state = Apagado;
+        output.V_N1 = 0;
+        esc.writeMicroseconds(ESC_stop);
+        output.ledCC.CC_State = OFF;
+        output.ledCC.CC_LED = LOW;
+        digitalWrite(FIRST_LED_CC_PIN, output.ledCC.CC_LED);
+        digitalWrite(SECOND_LED_CC_PIN, output.ledCC.CC_LED);
+    }
     break;
   }
 
