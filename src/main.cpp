@@ -43,8 +43,17 @@
 
 #define FIRST_LED_CC_PIN 32
 #define SECOND_LED_CC_PIN 33
+
 #define LED_LUB_PIN 14
+#define Min_LUB_Reduce 1.0  
+#define Max_LUB_Reduce 0.9
+#define LUB_Reduce 0.01
+
+
 #define LED_AIR_PIN 13
+#define Min_AIR_Reduce 1.0  
+#define Max_AIR_Reduce 0.9
+#define AIR_Reduce 0.01
 
 const float Temperature[Number_of_values] = {
 200,210,220,230,240,250,260,270,280,285,290,295,300,305,310,315,320,325,330,340,350,360,370,380,390,400,410,420,430,440,450,460,470,480,490,500,510,520,530,540,550,560,570,580,590,600,610,620,630,640,650,660,670,680,690,700,710,720,730,740,750,760,770,780,790,800,820,840,860,880,900,920,940,960,980,1000,1020,1040,1060,1080,1100,1120,1140,1160,1180,1200,1220,1240,1260,1280,1300,1320,1340,1360,1380,1400,1420,1440,1460,1480,1500,1520,1540,1560,1580,1600,1620,1640,1660,1680,1700,1750,1800,1850,1900,1950,2000,2050,2100,2150,2200,2250};
@@ -110,7 +119,6 @@ struct AIR
   String AIR_State = OFF;
   bool AIR_LED = LOW;
 };
-
 
 struct Display
 {
@@ -211,8 +219,69 @@ void send_state(Motor_states state, float number, Display output)
   
 }
 
-void calculations(Display &output)
+float lubrication_system(Display output)
 {
+  static float reduce = Min_LUB_Reduce;
+  if(output.ledLub.LUB_State == ON)
+  {
+    if(reduce > Max_LUB_Reduce)
+    {
+      reduce -= LUB_Reduce;
+      return reduce;
+    }
+    else
+    {
+      return Max_LUB_Reduce;
+    }
+  }
+  else 
+  {
+    if(reduce < Min_LUB_Reduce)
+    {
+      reduce += LUB_Reduce;
+      return reduce;
+    }
+    else
+    {
+      return Min_LUB_Reduce;
+    }
+  }
+}
+
+float bleed_air_system(Display output)
+{
+  static float reduce = Min_AIR_Reduce;
+  if(output.ledAir.AIR_State == ON)
+  {
+    if(reduce > Max_AIR_Reduce)
+    {
+      reduce -= AIR_Reduce;
+      return reduce;
+    }
+    else
+    {
+      return Max_AIR_Reduce;
+    }
+  }
+  else 
+  {
+    if(reduce < Min_AIR_Reduce)
+    {
+      reduce += AIR_Reduce;
+      return reduce;
+    }
+    else
+    {
+      return Min_AIR_Reduce;
+    }
+  }
+}
+
+void calculations(float (*lubrication_system)(Display), float (*bleed_air_system)(Display), Display &output)
+{
+  float lubrication_reduction = lubrication_system(output);
+  float bleed_air_reduction = bleed_air_system(output);
+
   output.T0 = readPot(POT_T0, T0_min, T0_max);
   output.P0 = readPot(POT_P0, P0_min, P0_max);
   output.V0 = readPot(POT_V0, V0_min, V0_max);
@@ -222,27 +291,28 @@ void calculations(Display &output)
   float pr0 = interp((float)output.T0, Temperature, Pressure);
 
   float h2 = h0 + output.V0*output.V0/UNIT_compensation;
-  output.T2 = inv(h2, Enthalpy, Temperature);
+  output.T2 = inv(h2, Enthalpy, Temperature) * lubrication_reduction;
   float pr2 = interp(output.T2, Temperature, Pressure);
-  output.P2 = output.P0*pr2/pr0;
+  output.P2 = (output.P0*pr2/pr0) * bleed_air_reduction;
 
   output.P3 = Ratio_Pressure*output.P2;
   float pr3 = Ratio_Pressure*pr2;
-  output.T3 = inv(pr3, Pressure, Temperature);
+  output.T3 = inv(pr3, Pressure, Temperature) * lubrication_reduction;
   float h3 = interp((float)output.T3, Temperature, Enthalpy);
 
+  output.T4 = Temperature_4 * lubrication_reduction;
   output.P4 = output.P3;
-  float h4 = interp(Temperature_4, Temperature, Enthalpy);
-  float pr4 = interp(Temperature_4, Temperature, Pressure);
+  float h4 = interp(output.T4, Temperature, Enthalpy);
+  float pr4 = interp(output.T4, Temperature, Pressure);
 
   float h5 = h4-(h3-h2);
-  output.T5 = inv(h5, Enthalpy, Temperature);
+  output.T5 = inv(h5, Enthalpy, Temperature) * lubrication_reduction * bleed_air_reduction;
   float pr5 = interp((float)output.T5, Temperature, Pressure);
   output.P5 = output.P4*pr5/pr4;
 
   output.P9 = output.P0;
   float pr9 = pr5*output.P9/output.P5;
-  output.T9 = inv(pr9, Pressure, Temperature);
+  output.T9 = inv(pr9, Pressure, Temperature) * lubrication_reduction;
   float h9 = interp((float)output.T9, Temperature, Enthalpy);
   output.V9 = sqrt(max(0.0f, 2000.0f*(h5-h9)));
   output.F = output.m*(output.V9-output.V0);
@@ -274,38 +344,33 @@ bool speed_up_motor (Motor_states state, Servo &esc, unsigned long &lasttime, Di
   }
 }
 
-
-
-String receive()
+void commands(String (*receive_command)(), Display &output)
 {
-  String command;
-  if(Serial.available())
+  String command = receive_command();
+  if (command == "LUB")
   {
-    while(Serial.available())
+    if(output.ledLub.LUB_State == OFF)
     {
-      command = Serial.read();
+      output.ledLub.LUB_State = ON;
     }
-  }
-  else
-  {
-    command = "NULL";
-  }
-  return command;
-}
-
-
-void commands(String command, Display &output)
-{
- if (command == "LUB")
-  {
-    output.ledLub.LUB_State = !output.ledLub.LUB_State;
+    else
+    {
+      output.ledLub.LUB_State = OFF;
+    }
     output.ledLub.LUB_LED = !output.ledLub.LUB_LED;
     digitalWrite(LED_LUB_PIN, output.ledLub.LUB_LED);
     return;
   }
   else if (command == "AIR")
   {
-    output.ledAir.AIR_State = !output.ledAir.AIR_State;
+    if(output.ledAir.AIR_State == OFF)
+    {
+      output.ledAir.AIR_State = ON;
+    }
+    else 
+    {
+      output.ledAir.AIR_State = OFF;
+    }
     output.ledAir.AIR_LED = !output.ledAir.AIR_LED;
     digitalWrite(LED_AIR_PIN, output.ledAir.AIR_LED);
     return;
@@ -315,6 +380,25 @@ void commands(String command, Display &output)
     return;
   }
 }
+
+String receive()
+{
+  String command;
+  if(Serial.available())
+  {
+    while(Serial.available())
+    {
+      command += static_cast<char>(Serial.read());
+    }
+  }
+  else
+  {
+    command = "NULL";
+  }
+  command.trim();
+  return command;
+}
+
 
 Servo esc;
 Motor_states state = Apagado;
@@ -343,8 +427,8 @@ void setup() {
 
 void loop() {
 
-  bool run = digitalRead(ON_OF_SWITCH);
-  
+  bool run = digitalRead(ON_OF_SWITCH); 
+  commands(receive, output);
   switch(state)
   {
     case Apagado:
@@ -399,7 +483,7 @@ void loop() {
     case Encendido:
     if(run)
     {
-      calculations(output);
+      calculations(lubrication_system, bleed_air_system, output);
       send_telemetry(state, output);
     }
     else
