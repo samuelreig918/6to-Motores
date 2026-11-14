@@ -1,40 +1,50 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
 
-#define POT_T0 35
+#define POT_T0 36
 #define T0_min 216.65
 #define T0_max 320.0
-#define POT_P0 35
+
+#define POT_P0 39
 #define P0_min 0.20
 #define P0_max 1.10
-#define POT_V0 32
+
+#define POT_V0 34
 #define V0_min 0.0
 #define V0_max 700.0
-#define POT_M  33
-#define M_min 1.0 //Ajustar flujo masico, buscar en linea 
-#define M_max 80.0
-#define ON_OF_SWITCH 34
+
+#define POT_M  35
+#define M_min 0.0 //Ajustar flujo masico, buscar en linea 
+#define M_max 77.0
+
+#define ON_OF_SWITCH 26
+
 #define ESC_PIN 27
 #define ESC_Hertz 50
 #define ESC_stop 1000
 #define ESC_max 2000
+
 #define Baudreate 115200
+
 #define Ratio_Pressure 13.5
 #define Temperature_4 1265.0
 #define Number_of_values 122
+
 #define Initial_wait 1000
 #define ADC_resolution_float 4095.0
 #define UNIT_compensation 2000.0
 #define ON "ON"
 #define OFF "OFF"
 #define All_zeros 0
+
 #define Speed_up_time 4000
 #define Speed_up_levels 10
 #define First_speed_up_level 0
+
 #define FIRST_LED_CC_PIN 32
 #define SECOND_LED_CC_PIN 33
-#define LED_LUB_PIN 26
-#define LED_AIR_PIN 23
+#define LED_LUB_PIN 14
+#define LED_AIR_PIN 13
 
 const float Temperature[Number_of_values] = {
 200,210,220,230,240,250,260,270,280,285,290,295,300,305,310,315,320,325,330,340,350,360,370,380,390,400,410,420,430,440,450,460,470,480,490,500,510,520,530,540,550,560,570,580,590,600,610,620,630,640,650,660,670,680,690,700,710,720,730,740,750,760,770,780,790,800,820,840,860,880,900,920,940,960,980,1000,1020,1040,1060,1080,1100,1120,1140,1160,1180,1200,1220,1240,1260,1280,1300,1320,1340,1360,1380,1400,1420,1440,1460,1480,1500,1520,1540,1560,1580,1600,1620,1640,1660,1680,1700,1750,1800,1850,1900,1950,2000,2050,2100,2150,2200,2250};
@@ -85,8 +95,8 @@ String states_names (Motor_states state)
 
 struct CC
 {
-  String CC_State;
-  bool CC_LED;
+  String CC_State = OFF;
+  bool CC_LED = LOW;
 };
 
 struct LUB
@@ -156,8 +166,11 @@ void send_telemetry(Motor_states state, Display output)
   Serial.print(','); Serial.print(output.V_N1, 2);
 
   Serial.print(','); Serial.print(output.ledCC.CC_State);
+  Serial.print(','); Serial.print(output.ledCC.CC_LED);
   Serial.print(','); Serial.print(output.ledLub.LUB_State);
-  Serial.print(','); Serial.println(output.ledAir.AIR_State);
+  Serial.print(','); Serial.print(output.ledLub.LUB_LED);
+  Serial.print(','); Serial.print(output.ledAir.AIR_State);
+  Serial.print(','); Serial.println(output.ledAir.AIR_LED);
 }
 
 void send_state(Motor_states state, float number, Display output)
@@ -190,8 +203,12 @@ void send_state(Motor_states state, float number, Display output)
   Serial.print(','); Serial.print(output.V_N1, 2);
 
   Serial.print(','); Serial.print(output.ledCC.CC_State);
+  Serial.print(','); Serial.print(output.ledCC.CC_LED);
   Serial.print(','); Serial.print(output.ledLub.LUB_State);
-  Serial.print(','); Serial.println(output.ledAir.AIR_State);
+  Serial.print(','); Serial.print(output.ledLub.LUB_LED);
+  Serial.print(','); Serial.print(output.ledAir.AIR_State);
+  Serial.print(','); Serial.println(output.ledAir.AIR_LED);
+  
 }
 
 void calculations(Display &output)
@@ -206,7 +223,7 @@ void calculations(Display &output)
 
   float h2 = h0 + output.V0*output.V0/UNIT_compensation;
   output.T2 = inv(h2, Enthalpy, Temperature);
-  float pr2 = interp(T2, Temperature, Pressure);
+  float pr2 = interp(output.T2, Temperature, Pressure);
   output.P2 = output.P0*pr2/pr0;
 
   output.P3 = Ratio_Pressure*output.P2;
@@ -306,8 +323,8 @@ unsigned long last_time = 0;
 bool motor_fully_on = false;
 
 void setup() {
-  Serial.begin(Baudreate);
 
+  Serial.begin(Baudreate);
   pinMode(ON_OF_SWITCH, INPUT_PULLDOWN);
   pinMode(FIRST_LED_CC_PIN, OUTPUT);
   pinMode(SECOND_LED_CC_PIN, OUTPUT);
@@ -328,7 +345,6 @@ void loop() {
 
   bool run = digitalRead(ON_OF_SWITCH);
   
-
   switch(state)
   {
     case Apagado:
